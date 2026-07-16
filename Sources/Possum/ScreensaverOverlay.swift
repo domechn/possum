@@ -24,8 +24,9 @@ final class ScreensaverOverlay {
             forName: NSApplication.didChangeScreenParametersNotification,
             object: nil, queue: .main
         ) { [weak self] _ in
+            guard let self else { return }
             Task { @MainActor in
-                guard let self, self.isShowing else { return }
+                guard self.isShowing else { return }
                 self.tearDownWindows()
                 self.buildWindows()
             }

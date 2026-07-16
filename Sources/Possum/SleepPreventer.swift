@@ -6,7 +6,7 @@ final class SleepPreventer {
     private var displayAssertionID: IOPMAssertionID = 0
     private(set) var isActive = false
 
-    private static let reason = "Possum working mode" as CFString
+    private nonisolated(unsafe) static let reason = "Possum working mode" as CFString
 
     func start() {
         guard !isActive else { return }

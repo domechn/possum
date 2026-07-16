@@ -33,14 +33,17 @@ final class SessionController: ObservableObject {
             return
         }
         state = .countingDown(remaining: delaySeconds)
-        countdownTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] timer in
+        countdownTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+            guard let self else { return }
             Task { @MainActor in
-                guard let self, case .countingDown(let remaining) = self.state else {
-                    timer.invalidate()
+                guard case .countingDown(let remaining) = self.state else {
+                    self.countdownTimer?.invalidate()
+                    self.countdownTimer = nil
                     return
                 }
                 if remaining <= 1 {
-                    timer.invalidate()
+                    self.countdownTimer?.invalidate()
+                    self.countdownTimer = nil
                     self.activate()
                 } else {
                     self.state = .countingDown(remaining: remaining - 1)
@@ -69,12 +72,14 @@ final class SessionController: ObservableObject {
         exitMonitor.arm(
             mode: mode,
             onExit: { [weak self] in
-                Task { @MainActor in self?.deactivate() }
+                guard let self else { return }
+                Task { @MainActor in self.deactivate() }
             },
             onHint: { [weak self] in
+                guard let self else { return }
                 Task { @MainActor in
                     hintState.showHint()
-                    self?.overlay.showCursor()
+                    self.overlay.showCursor()
                 }
             },
             onProgress: { progress in
@@ -87,7 +92,8 @@ final class SessionController: ObservableObject {
         exitNotificationObserver = NotificationCenter.default.addObserver(
             forName: .exitScreensaverRequested, object: nil, queue: .main
         ) { [weak self] _ in
-            Task { @MainActor in self?.deactivate() }
+            guard let self else { return }
+            Task { @MainActor in self.deactivate() }
         }
 
         state = .active
