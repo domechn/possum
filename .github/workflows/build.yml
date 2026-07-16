@@ -1,0 +1,50 @@
+name: Build Possum.app
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build release binary
+        run: swift build -c release
+
+      - name: Package app bundle
+        run: ./scripts/make-app.sh
+
+      - name: Upload Possum.app
+        uses: actions/upload-artifact@v4
+        with:
+          name: Possum.app
+          path: build/Possum.app
+
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: macos-14
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build release binary
+        run: swift build -c release
+
+      - name: Package app bundle
+        run: ./scripts/make-app.sh
+
+      - name: Create zip for release
+        run: cd build && zip -r Possum.app.zip Possum.app
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: build/Possum.app.zip
+          generate_release_notes: true
