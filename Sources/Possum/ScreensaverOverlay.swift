@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import SwiftUI
 
 final class OverlayWindow: NSWindow {
@@ -8,9 +9,11 @@ final class OverlayWindow: NSWindow {
 @MainActor
 final class ScreensaverOverlay {
     private var windows: [NSWindow] = []
-    private var screenObserver: Any?
+    private var observers: [NSObjectProtocol] = []
     private(set) var isShowing = false
     let hintState = HintState()
+    /// Called when the on-screen exit button is clicked.
+    var onExitRequested: (() -> Void)?
     private var cursorHidden = false
     private var hintObserver: AnyCancellable?
 
@@ -18,9 +21,14 @@ final class ScreensaverOverlay {
         guard !isShowing else { return }
         isShowing = true
         buildWindows()
-        hideCursor()
         NSApp.activate(ignoringOtherApps: true)
-        screenObserver = NotificationCenter.default.addObserver(
+        // Keep the overlay frontmost: no Dock, menu bar, ⌘Tab or ⌘H while active. Force Quit still works.
+        NSApp.presentationOptions = [.hideDock, .hideMenuBar, .disableProcessSwitching, .disableHideApplication]
+        // Cursor is visible only while the hint is (guarded mode), hidden otherwise.
+        hintObserver = hintState.$visible.sink { [weak self] visible in
+            if visible { self?.showCursor() } else { self?.hideCursor() }
+        }
+        observers.append(NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification,
             object: nil, queue: .main
         ) { [weak self] _ in
@@ -30,19 +38,31 @@ final class ScreensaverOverlay {
                 self.tearDownWindows()
                 self.buildWindows()
             }
-        }
+        })
+        observers.append(NotificationCenter.default.addObserver(
+            forName: NSApplication.didResignActiveNotification,
+            object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { _ = self?.reclaimFocus() }
+        })
     }
 
     func hide() {
         guard isShowing else { return }
         isShowing = false
-        if let observer = screenObserver {
-            NotificationCenter.default.removeObserver(observer)
-            screenObserver = nil
-        }
+        observers.forEach { NotificationCenter.default.removeObserver($0) }
+        observers.removeAll()
+        hintObserver = nil
         hintState.hideHint()
         tearDownWindows()
+        NSApp.presentationOptions = []
         showCursor()
+    }
+
+    private func reclaimFocus() {
+        guard isShowing else { return }
+        NSApp.activate(ignoringOtherApps: true)
+        windows.first?.makeKeyAndOrderFront(nil)
     }
 
     private func buildWindows() {
@@ -58,7 +78,8 @@ final class ScreensaverOverlay {
             window.isOpaque = true
             window.backgroundColor = .black
             window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
-            window.contentView = NSHostingView(rootView: ScreensaverView().environmentObject(hintState))
+            let view = ScreensaverView(onExitRequested: { [weak self] in self?.onExitRequested?() })
+            window.contentView = NSHostingView(rootView: view.environmentObject(hintState))
             window.setFrame(screen.frame, display: true)
             if index == 0 {
                 window.makeKeyAndOrderFront(nil)
@@ -83,12 +104,10 @@ final class ScreensaverOverlay {
         }
     }
 
-    func showCursor() {
+    private func showCursor() {
         if cursorHidden {
             NSCursor.unhide()
             cursorHidden = false
         }
     }
 }
-
-import Combine

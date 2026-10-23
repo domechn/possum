@@ -1,21 +1,29 @@
 import Foundation
 
 enum ClockFormatter {
-    static func timeString(from date: Date, timeZone: TimeZone = .current) -> String {
+    // Cached: the clock redraws every second. POSIX locale keeps "HH:mm" 24h regardless of user settings.
+    private static let timeFormatter: DateFormatter = {
         let f = DateFormatter()
-        f.timeZone = timeZone
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.timeZone = .autoupdatingCurrent
         f.dateFormat = "HH:mm"
-        return f.string(from: date)
+        return f
+    }()
+
+    private static let dateFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "zh_CN")
+        f.timeZone = .autoupdatingCurrent
+        f.setLocalizedDateFormatFromTemplate("EEEEMMMd")
+        return f
+    }()
+
+    static func timeString(from date: Date) -> String {
+        timeFormatter.string(from: date)
     }
 
-    static func dateString(from date: Date,
-                           locale: Locale = .current,
-                           timeZone: TimeZone = .current) -> String {
-        let f = DateFormatter()
-        f.locale = locale
-        f.timeZone = timeZone
-        f.dateFormat = DateFormatter.dateFormat(fromTemplate: "EEEEMMMd", options: 0, locale: locale)
-        return f.string(from: date)
+    static func dateString(from date: Date) -> String {
+        dateFormatter.string(from: date)
     }
 }
 

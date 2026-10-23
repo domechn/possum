@@ -84,6 +84,12 @@ struct ContentView: View {
                     .foregroundStyle(.secondary)
                     .transition(.opacity.combined(with: .move(edge: .bottom)))
             }
+
+            if let error = session.errorMessage {
+                Label(error, systemImage: "exclamationmark.triangle")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.red)
+            }
         }
         .padding(.top, 16)
     }
@@ -126,8 +132,11 @@ struct ContentView: View {
     // MARK: - Footer
 
     private var footer: some View {
-        Text("合盖仍会休眠，请保持开盖")
-            .font(.system(size: 11))
-            .foregroundStyle(.quaternary)
+        VStack(spacing: 2) {
+            Text("屏保不是锁屏，他人仍可操作这台电脑")
+            Text("合盖仍会休眠，请保持开盖")
+        }
+        .font(.system(size: 11))
+        .foregroundStyle(.quaternary)
     }
 }

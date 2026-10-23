@@ -13,37 +13,41 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Build release binary
-        run: swift build -c release
+      - name: Run tests
+        run: swift test
 
       - name: Package app bundle
         run: ./scripts/make-app.sh
+        env:
+          # Tag builds stamp the bundle version from the tag (v1.2.3 -> 1.2.3); other builds keep Info.plist's.
+          VERSION: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || '' }}
 
-      - name: Upload Possum.app
+      # ditto keeps the executable bit and code signature; upload-artifact alone would strip permissions.
+      - name: Zip app bundle
+        run: ditto -c -k --keepParent build/Possum.app build/Possum.app.zip
+
+      - name: Upload Possum.app.zip
         uses: actions/upload-artifact@v4
         with:
-          name: Possum.app
-          path: build/Possum.app
+          name: Possum.app.zip
+          path: build/Possum.app.zip
 
   release:
     needs: build
     if: startsWith(github.ref, 'refs/tags/v')
-    runs-on: macos-14
+    runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Build release binary
-        run: swift build -c release
-
-      - name: Package app bundle
-        run: ./scripts/make-app.sh
-
-      - name: Create zip for release
-        run: cd build && zip -r Possum.app.zip Possum.app
+      - name: Download Possum.app.zip
+        uses: actions/download-artifact@v4
+        with:
+          name: Possum.app.zip
+          path: build
 
       - name: Create GitHub Release
+        # TODO: pin to a full commit SHA, e.g. `softprops/action-gh-release@<sha> # v2.x.y`
+        # (look up with: gh api repos/softprops/action-gh-release/commits/v2 --jq .sha)
         uses: softprops/action-gh-release@v2
         with:
           files: build/Possum.app.zip

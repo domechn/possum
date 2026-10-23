@@ -5,7 +5,7 @@ struct PossumApp: App {
     @StateObject private var session = SessionController()
 
     var body: some Scene {
-        WindowGroup {
+        Window("Possum", id: "main") {
             ContentView()
                 .environmentObject(session)
         }

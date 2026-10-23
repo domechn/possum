@@ -23,10 +23,16 @@ Possum 名字来自英语习语 *playing possum*（负鼠装死）——正是�
 
 前往 [Releases](../../releases) 下载最新的 `Possum.app.zip`，解压后拖入「应用程序」文件夹。
 
+> **Gatekeeper 提示**：Release 包仅做了 ad-hoc 签名，未经 Apple 公证，首次打开会被拦截。请在 Finder 中右键 Possum.app →「打开」，或在「系统设置 → 隐私与安全性」中点「仍要打开」。也可以执行：
+>
+> ```bash
+> xattr -dr com.apple.quarantine /Applications/Possum.app
+> ```
+
 ### 从源码构建
 
 ```bash
-git clone https://github.com/你的用户名/possum.git
+git clone https://github.com/domechn/possum.git
 cd possum
 ./scripts/make-app.sh
 open build/Possum.app
@@ -61,7 +67,8 @@ open build/Possum.app
 
 - **合盖会休眠**：软件无法对抗物理合盖，请保持屏幕打开
 - 插拔显示器自动适配，无需手动操作
-- 这不是安全锁屏工具——真正的锁屏请用系统自带功能
+- **屏幕并未锁定**：这不是安全锁屏工具，任何人都能退出屏保并操作电脑——离开工位请用系统自带锁屏（⌃⌘Q）
+- 屏保期间会隐藏 Dock 和菜单栏并禁用 ⌘Tab 切换应用；如遇异常，仍可用 ⌘⌥Esc 强制退出
 
 ---
 
@@ -70,7 +77,8 @@ open build/Possum.app
 - 纯 Swift + SwiftUI，通过 Swift Package Manager 构建
 - 使用 `IOPMAssertionCreateWithName` 创建电源断言
 - 屏保窗口 level 为 `.screenSaver`，覆盖 Dock 和菜单栏
-- 事件监听区分 global/local monitor，确保前台和后台都能响应
+- 鼠标事件同时用 global/local monitor 监听；键盘只用 local monitor（global 键盘监听需要「输入监控」权限），屏保期间 App 始终保持在前台
+- `swift test` 运行单元测试
 
 ---
 

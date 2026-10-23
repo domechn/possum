@@ -11,6 +11,7 @@ final class SessionController: ObservableObject {
 
     @Published private(set) var state: State = .idle
     @Published private(set) var lastSessionSummary: String?
+    @Published private(set) var errorMessage: String?
     @Published var guardedExitEnabled: Bool {
         didSet { UserDefaults.standard.set(guardedExitEnabled, forKey: "guardedExitEnabled") }
     }
@@ -19,51 +20,62 @@ final class SessionController: ObservableObject {
     private let overlay = ScreensaverOverlay()
     private let exitMonitor = ExitMonitor()
     private var countdownTimer: Timer?
-    private var sessionStart: Date?
-    private var exitNotificationObserver: Any?
+    private var countdownDeadline: Date?
+    private var sessionStart: ContinuousClock.Instant?
 
     init() {
         guardedExitEnabled = UserDefaults.standard.bool(forKey: "guardedExitEnabled")
+        overlay.onExitRequested = { [weak self] in self?.deactivate() }
     }
 
     func startWorkMode(delaySeconds: Int) {
         guard state == .idle else { return }
+        errorMessage = nil
         guard delaySeconds > 0 else {
             activate()
             return
         }
+        // Remaining time is derived from a deadline so late or coalesced timer fires don't stretch the countdown.
+        countdownDeadline = Date().addingTimeInterval(TimeInterval(delaySeconds))
         state = .countingDown(remaining: delaySeconds)
-        countdownTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
-            guard let self else { return }
-            Task { @MainActor in
-                guard case .countingDown(let remaining) = self.state else {
-                    self.countdownTimer?.invalidate()
-                    self.countdownTimer = nil
-                    return
-                }
-                if remaining <= 1 {
-                    self.countdownTimer?.invalidate()
-                    self.countdownTimer = nil
-                    self.activate()
-                } else {
-                    self.state = .countingDown(remaining: remaining - 1)
-                }
-            }
+        let timer = Timer(timeInterval: 0.2, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { _ = self?.tickCountdown() }
+        }
+        // .common so the countdown keeps running while a menu or control is being tracked.
+        RunLoop.main.add(timer, forMode: .common)
+        countdownTimer = timer
+    }
+
+    func tickCountdown(now: Date = Date()) {
+        guard case .countingDown = state, let deadline = countdownDeadline else { return }
+        let remaining = Int(deadline.timeIntervalSince(now).rounded(.up))
+        if remaining <= 0 {
+            activate()
+        } else if state != .countingDown(remaining: remaining) {
+            state = .countingDown(remaining: remaining)
         }
     }
 
     func cancelCountdown() {
         guard case .countingDown = state else { return }
-        countdownTimer?.invalidate()
-        countdownTimer = nil
+        stopCountdown()
         state = .idle
     }
 
-    private func activate() {
+    private func stopCountdown() {
         countdownTimer?.invalidate()
         countdownTimer = nil
-        sessionStart = Date()
-        sleepPreventer.start()
+        countdownDeadline = nil
+    }
+
+    private func activate() {
+        stopCountdown()
+        guard sleepPreventer.start() else {
+            errorMessage = "无法阻止系统休眠，工作模式未启动"
+            state = .idle
+            return
+        }
+        sessionStart = ContinuousClock.now
         overlay.show()
 
         let mode: ExitMode = guardedExitEnabled ? .guarded : .instant
@@ -71,46 +83,23 @@ final class SessionController: ObservableObject {
 
         exitMonitor.arm(
             mode: mode,
-            onExit: { [weak self] in
-                guard let self else { return }
-                Task { @MainActor in self.deactivate() }
-            },
-            onHint: { [weak self] in
-                guard let self else { return }
-                Task { @MainActor in
-                    hintState.showHint()
-                    self.overlay.showCursor()
-                }
-            },
-            onProgress: { progress in
-                Task { @MainActor in
-                    hintState.updateProgress(progress)
-                }
-            }
+            onExit: { [weak self] in self?.deactivate() },
+            onHint: { hintState.showHint() },
+            onProgress: { hintState.updateProgress($0) }
         )
-
-        exitNotificationObserver = NotificationCenter.default.addObserver(
-            forName: .exitScreensaverRequested, object: nil, queue: .main
-        ) { [weak self] _ in
-            guard let self else { return }
-            Task { @MainActor in self.deactivate() }
-        }
 
         state = .active
     }
 
     private func deactivate() {
         guard state == .active else { return }
-        if let observer = exitNotificationObserver {
-            NotificationCenter.default.removeObserver(observer)
-            exitNotificationObserver = nil
-        }
         exitMonitor.disarm()
         overlay.hide()
         sleepPreventer.stop()
         if let start = sessionStart {
-            let duration = DurationFormatter.string(from: Date().timeIntervalSince(start))
-            lastSessionSummary = "已结束，本次持续 \(duration)"
+            // ContinuousClock keeps counting across system sleep and ignores wall-clock changes.
+            let seconds = start.duration(to: ContinuousClock.now).components.seconds
+            lastSessionSummary = "已结束，本次持续 \(DurationFormatter.string(from: TimeInterval(seconds)))"
         }
         sessionStart = nil
         state = .idle

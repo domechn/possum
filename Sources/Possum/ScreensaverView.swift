@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct ScreensaverView: View {
+    let onExitRequested: () -> Void
     @EnvironmentObject var hintState: HintState
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var now = Date()
@@ -19,11 +20,11 @@ struct ScreensaverView: View {
                 Text(ClockFormatter.dateString(from: now))
                     .font(.system(size: 26, weight: .light))
                     .foregroundStyle(.white.opacity(0.55))
-
-                HintView()
-                    .environmentObject(hintState)
-                    .frame(height: 90)
-                    .padding(.top, 20)
+            }
+            // Overlay keeps the hint out of layout so the clock stays centered; it hangs 36pt below.
+            .overlay(alignment: .bottom) {
+                HintView(onExitRequested: onExitRequested)
+                    .alignmentGuide(.bottom) { $0[.top] - 36 }
                     .opacity(hintState.visible ? 1 : 0)
                     .animation(.easeInOut(duration: 0.4), value: hintState.visible)
             }
@@ -33,8 +34,9 @@ struct ScreensaverView: View {
             let minuteChanged = Calendar.current.component(.minute, from: date)
                 != Calendar.current.component(.minute, from: now)
             now = date
-            if minuteChanged && !reduceMotion {
-                withAnimation(.easeInOut(duration: 3)) {
+            if minuteChanged {
+                // Burn-in protection still applies with Reduce Motion; it just jumps instead of gliding.
+                withAnimation(reduceMotion ? nil : .easeInOut(duration: 3)) {
                     drift = CGSize(width: CGFloat.random(in: -40...40),
                                    height: CGFloat.random(in: -20...20))
                 }
@@ -44,6 +46,7 @@ struct ScreensaverView: View {
 }
 
 struct HintView: View {
+    let onExitRequested: () -> Void
     @EnvironmentObject var hintState: HintState
 
     var body: some View {
@@ -62,9 +65,7 @@ struct HintView: View {
                         .animation(.linear(duration: 0.05), value: hintState.escProgress)
                 }
 
-            Button {
-                NotificationCenter.default.post(name: .exitScreensaverRequested, object: nil)
-            } label: {
+            Button(action: onExitRequested) {
                 Text("退出")
                     .font(.system(size: 12, weight: .regular))
                     .foregroundStyle(.white.opacity(0.4))
@@ -76,10 +77,8 @@ struct HintView: View {
                     )
             }
             .buttonStyle(.plain)
+            // Invisible (opacity 0) buttons still take clicks; only allow them while the hint shows.
+            .allowsHitTesting(hintState.visible)
         }
     }
-}
-
-extension Notification.Name {
-    static let exitScreensaverRequested = Notification.Name("exitScreensaverRequested")
 }
